@@ -7,7 +7,6 @@ import { Upload, LinkIcon, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import Tesseract from "tesseract.js"
 
 export function ImageToTextConverter() {
   const [images, setImages] = useState<File[]>([])
@@ -40,6 +39,16 @@ export function ImageToTextConverter() {
     setProgress(0)
   }
 
+  // Convert file to base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = (error) => reject(error)
+    })
+  }
+
   const convertToText = async () => {
     if (images.length === 0) return
 
@@ -50,16 +59,36 @@ export function ImageToTextConverter() {
     for (let i = 0; i < images.length; i++) {
       const image = images[i]
       try {
-        const result = await Tesseract.recognize(image, "eng", {
-          logger: (m) => {
-            if (m.status === "recognizing text") {
-              setProgress(Math.round((i / images.length + m.progress / images.length) * 100))
-            }
+        // Update progress
+        setProgress(Math.round((i / images.length) * 100))
+
+        // Convert image to base64
+        const base64Image = await fileToBase64(image)
+
+        // Call API
+        const response = await fetch("/api/ocr", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            image: base64Image,
+          }),
         })
-        allText += result.data.text + "\n\n"
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || "Failed to process image")
+        }
+
+        const data = await response.json()
+        allText += data.text + "\n\n"
+
+        // Update progress
+        setProgress(Math.round(((i + 1) / images.length) * 100))
       } catch (error) {
         console.error("Error processing image:", error)
+        allText += `[Error processing image ${i + 1}: ${error instanceof Error ? error.message : "Unknown error"}]\n\n`
       }
     }
 
